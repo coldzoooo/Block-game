@@ -37,11 +37,21 @@
   .stat .label { font-size: 11px; color: var(--muted); }
   .stat .value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
   #main {
-    flex: 1; min-height: 0; width: 100%; max-width: 480px;
+    flex: 1; min-height: 0; width: 100%; max-width: 760px;
     display: flex; gap: 8px; justify-content: center;
   }
-  #boardWrap { position: relative; height: 100%; display: flex; align-items: flex-start; }
-  #board { background: #0a0d1a; border: 2px solid var(--line); border-radius: 8px; display: block; }
+  #boardWrap {
+    position: relative; overflow: hidden; align-self: flex-start;
+    background: #0a0d1a; border: 2px solid var(--line); border-radius: 8px;
+  }
+  #board { display: block; will-change: transform; }
+  .edge {
+    position: absolute; top: 0; bottom: 0; width: 18px; pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(232, 235, 255, 0.55); font-size: 12px; transition: opacity 0.2s;
+  }
+  #edgeL { left: 0; background: linear-gradient(to right, rgba(91, 140, 255, 0.28), transparent); }
+  #edgeR { right: 0; background: linear-gradient(to left, rgba(91, 140, 255, 0.28), transparent); }
   #side { display: flex; flex-direction: column; gap: 8px; width: 72px; }
   .box { background: var(--panel); border-radius: 10px; padding: 6px; text-align: center; }
   .box .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
@@ -86,9 +96,11 @@
   <div id="main">
     <div id="boardWrap">
       <canvas id="board"></canvas>
+      <div class="edge" id="edgeL">◀</div>
+      <div class="edge" id="edgeR">▶</div>
       <div id="overlay">
         <h1 id="ovTitle">블럭 게임</h1>
-        <p id="ovText">화면 탭: 회전 · 좌우 스와이프: 이동<br>아래로 스와이프: 빠르게 내리기<br>아래로 빠르게 튕기기: 바로 떨어뜨리기<br>위로 스와이프 / 보관 칸 탭: 보관</p>
+        <p id="ovText">화면 탭: 회전 · 좌우 스와이프: 이동<br>아래로 스와이프: 빠르게 내리기<br>아래로 빠르게 튕기기: 바로 떨어뜨리기<br>위로 스와이프 / 보관 칸 탭: 보관<br>판이 넓어서 화면이 블럭을 따라 좌우로 움직여요</p>
         <button id="ovBtn">시작</button>
       </div>
     </div>
@@ -110,7 +122,8 @@
 
 <script>
 (() => {
-  const COLS = 10, ROWS = 20;
+  const COLS = 20, ROWS = 20;
+  const BASE_COLS = 10; // 블럭 크기는 기존 10칸 판 기준으로 고정
   const COLORS = {
     I: '#3ee0f0', O: '#ffd23f', T: '#b36bff', S: '#4ade80',
     Z: '#ff5a6e', J: '#5b8cff', L: '#ff9f43'
@@ -132,6 +145,7 @@
   const overlay = $('overlay');
 
   let cell = 24, dpr = 1;
+  let viewW = 0, camX = 0; // 화면보다 판이 넓을 때 좌우로 따라가는 카메라
   let grid, piece, nextType, holdType, canHold, bag;
   let score, lines, level, best = 0;
   let state = 'ready'; // ready | playing | paused | over
@@ -144,9 +158,14 @@
   // ---------- 레이아웃 ----------
   function resize() {
     const main = $('main');
-    const availH = main.clientHeight;
-    const availW = main.clientWidth - 72 - 8;
-    cell = Math.max(10, Math.floor(Math.min(availH / ROWS, availW / COLS)));
+    const availH = main.clientHeight - 4;
+    const availW = main.clientWidth - 72 - 8 - 4;
+    cell = Math.max(10, Math.floor(Math.min(availH / ROWS, availW / BASE_COLS)));
+    viewW = Math.min(availW, cell * COLS);
+    $('boardWrap').style.width = viewW + 4 + 'px';
+    $('boardWrap').style.height = cell * ROWS + 4 + 'px';
+    camX = camTarget();
+    applyCam();
     dpr = window.devicePixelRatio || 1;
     boardCv.style.width = cell * COLS + 'px';
     boardCv.style.height = cell * ROWS + 'px';
@@ -368,6 +387,22 @@
   }
 
   // ---------- 루프 ----------
+  function camTarget() {
+    const maxX = cell * COLS - viewW;
+    if (maxX <= 0) return 0;
+    if (!piece) return camX;
+    let minC = 99, maxC = -1;
+    piece.m.forEach(row => row.forEach((v, c) => { if (v) { minC = Math.min(minC, c); maxC = Math.max(maxC, c); } }));
+    const center = (piece.x + (minC + maxC + 1) / 2) * cell;
+    return Math.max(0, Math.min(maxX, center - viewW / 2));
+  }
+  function applyCam() {
+    boardCv.style.transform = `translateX(${-camX}px)`;
+    const maxX = cell * COLS - viewW;
+    $('edgeL').style.opacity = camX > 1 ? 1 : 0;
+    $('edgeR').style.opacity = camX < maxX - 1 ? 1 : 0;
+  }
+
   function loop(t) {
     const dt = Math.min(100, t - (lastTime || t));
     lastTime = t;
@@ -386,6 +421,10 @@
       }
       draw();
     }
+    const target = camTarget();
+    if (Math.abs(target - camX) > 0.5) camX += (target - camX) * Math.min(1, dt / 90);
+    else camX = target;
+    applyCam();
     requestAnimationFrame(loop);
   }
 
